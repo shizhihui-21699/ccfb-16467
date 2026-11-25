@@ -1,0 +1,63 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.memsweep'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // 嵌入式容器，仅用于测试（agent 本体不依赖这些包，全部以反射访问）
+    testImplementation 'org.apache.tomcat.embed:tomcat-embed-core:10.1.34'
+    testImplementation 'org.eclipse.jetty:jetty-servlet:11.0.24'
+    testImplementation 'org.eclipse.jetty:jetty-jmx:11.0.24'
+    testImplementation 'org.slf4j:slf4j-simple:2.0.16'
+}
+
+test {
+    useJUnitPlatform()
+    // 反射访问 JDK 内部结构（线程组、JMX 仓库等）需要开放模块
+    jvmArgs(
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.management/javax.management=ALL-UNNAMED',
+        '--add-opens=java.management/sun.management=ALL-UNNAMED',
+        '--add-opens=java.management/com.sun.jmx.mbeanserver=ALL-UNNAMED',
+        '--add-opens=java.management/com.sun.jmx.interceptor=ALL-UNNAMED',
+        '-Djdk.attach.allowAttachSelf=true'
+    )
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
+}
+
+// 构建可被 VirtualMachine.loadAgentPath 加载的独立 agent jar（不含任何第三方依赖）
+tasks.register('agentJar', Jar) {
+    archiveBaseName = 'memory-shell-sweeper-agent'
+    from sourceSets.main.output
+    manifest {
+        attributes(
+            'Agent-Class': 'com.memsweep.agent.SweepAgent',
+            'Premain-Class': 'com.memsweep.agent.SweepAgent',
+            'Main-Class': 'com.memsweep.cli.SweepCli',
+            'Can-Redefine-Classes': 'true',
+            'Can-Retransform-Classes': 'true',
+            'Can-Support-Native-Methods': 'false'
+        )
+    }
+}
+
+build.dependsOn agentJar
